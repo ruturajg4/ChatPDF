@@ -11,11 +11,11 @@ try:
 except ImportError:
     from PyPDF2 import PdfReader
 
-# LangChain & Google GenAI
+# LangChain & OpenRouter Integration
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import FAISS
-from langchain_google_genai import GoogleGenerativeAIEmbeddings, ChatGoogleGenerativeAI
 from langchain_community.chat_models import ChatOpenAI
+from langchain_community.embeddings import OpenAIEmbeddings
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.documents import Document
@@ -206,11 +206,16 @@ def chunk_documents(documents: List[Document], chunk_size: int = 1000, chunk_ove
     return text_splitter.split_documents(documents)
 
 
-# Helper: Build Vector Store
-def create_vector_store(chunks: List[Document], api_key: str, embedding_model: str = "models/gemini-embedding-001"):
-    embeddings = GoogleGenerativeAIEmbeddings(
+# Helper: Build Vector Store via OpenRouter Embeddings
+def create_vector_store(chunks: List[Document], api_key: str, embedding_model: str = "text-embedding-3-small"):
+    embeddings = OpenAIEmbeddings(
         model=embedding_model,
-        google_api_key=api_key
+        openai_api_key=api_key,
+        openai_api_base="https://openrouter.ai/api/v1",
+        headers={
+            "HTTP-Referer": "https://github.com/ruturajg4/ChatPDF",
+            "X-Title": "ChatPDF"
+        }
     )
     vector_store = FAISS.from_documents(chunks, embedding=embeddings)
     try:
@@ -220,8 +225,8 @@ def create_vector_store(chunks: List[Document], api_key: str, embedding_model: s
     return vector_store
 
 
-# Helper: Conversational Q&A Chain (LCEL)
-def answer_user_question(user_question: str, vector_store, api_key: str, model_name: str, provider: str = "Google Gemini (Direct)", temperature: float = 0.2, top_k: int = 4):
+# Helper: Conversational Q&A Chain (LCEL) via OpenRouter
+def answer_user_question(user_question: str, vector_store, api_key: str, model_name: str, temperature: float = 0.2, top_k: int = 4):
     retriever = vector_store.as_retriever(search_kwargs={"k": top_k})
     retrieved_docs = retriever.invoke(user_question)
 
@@ -234,7 +239,7 @@ def answer_user_question(user_question: str, vector_store, api_key: str, model_n
     )
 
     system_prompt = (
-        f"You are an expert document assistant powered by {provider}.\n"
+        "You are an expert document assistant.\n"
         "Your task is to answer questions thoroughly, accurately, and strictly based on the provided context.\n"
         "Guidelines:\n"
         "1. Provide clear, well-structured, detailed answers with markdown formatting (bullet points, bold highlights, tables if applicable).\n"
@@ -250,23 +255,16 @@ def answer_user_question(user_question: str, vector_store, api_key: str, model_n
         ("human", "{question}")
     ])
 
-    if "OpenRouter" in provider:
-        llm = ChatOpenAI(
-            model=model_name,
-            openai_api_key=api_key,
-            openai_api_base="https://openrouter.ai/api/v1",
-            default_headers={
-                "HTTP-Referer": "https://github.com/ruturajg4/ChatPDF",
-                "X-Title": "ChatPDF"
-            },
-            temperature=temperature
-        )
-    else:
-        llm = ChatGoogleGenerativeAI(
-            model=model_name,
-            google_api_key=api_key,
-            temperature=temperature
-        )
+    llm = ChatOpenAI(
+        model=model_name,
+        openai_api_key=api_key,
+        openai_api_base="https://openrouter.ai/api/v1",
+        default_headers={
+            "HTTP-Referer": "https://github.com/ruturajg4/ChatPDF",
+            "X-Title": "ChatPDF"
+        },
+        temperature=temperature
+    )
 
     chain = prompt | llm | StrOutputParser()
     answer = chain.invoke({
@@ -281,93 +279,60 @@ def answer_user_question(user_question: str, vector_store, api_key: str, model_n
 # Sidebar: Setup, Model & File Management
 # ==========================================
 with st.sidebar:
-    st.markdown("### ⚙️ Engine & API Setup")
+    st.markdown("### ⚙️ OpenRouter Configuration")
 
-    selected_provider = st.radio(
-        "Select AI Provider",
-        options=["Google Gemini (Direct)", "OpenRouter (Multi-Model)"],
-        horizontal=True,
-        help="Google Gemini connects directly to Google AI Studio. OpenRouter allows accessing multi-LLM community models."
+    # API Key Management (Securely hidden from UI and DOM)
+    env_or_key = os.getenv("OPENROUTER_API_KEY", "")
+    api_key_input = st.text_input(
+        "OpenRouter API Key",
+        value="",
+        placeholder="🔒 Loaded securely from .env" if env_or_key else "sk-or-v1-...",
+        type="password",
+        help="Your API key is kept secure and hidden. Enter a key here only if you wish to override the environment variable."
     )
+    effective_api_key = api_key_input.strip() if api_key_input.strip() else env_or_key.strip()
 
-    if selected_provider == "Google Gemini (Direct)":
-        env_api_key = os.getenv("GOOGLE_API_KEY", "")
-        api_key_input = st.text_input(
-            "Google Gemini API Key",
-            value="",
-            placeholder="🔒 Loaded securely from .env" if env_api_key else "Paste API Key here...",
-            type="password",
-            help="Your API key is kept secure and hidden. Enter a key here only if you wish to override the environment variable."
-        )
-        effective_api_key = api_key_input.strip() if api_key_input.strip() else env_api_key.strip()
-
-        if effective_api_key:
-            source_tag = "Override" if api_key_input.strip() else "Secure .env"
-            st.markdown(
-                f'<div class="status-badge badge-ready">● Gemini Key Active ({source_tag})</div>',
-                unsafe_allow_html=True
-            )
-        else:
-            st.markdown(
-                '<div class="status-badge badge-warning">▲ Gemini Key Required</div>',
-                unsafe_allow_html=True
-            )
-            st.caption("👉 [Get a free key from Google AI Studio](https://aistudio.google.com/app/apikey)")
-
-        selected_model = st.selectbox(
-            "Gemini Model",
-            options=["gemini-3.8-flash", "gemini-3.5-flash", "gemini-3.1-pro-preview"],
-            index=0,
-            help="gemini-3.8-flash is Google's latest ultra-fast frontier model."
+    if effective_api_key:
+        source_tag = "Override" if api_key_input.strip() else "Secure .env"
+        st.markdown(
+            f'<div class="status-badge badge-ready">● OpenRouter Key Active ({source_tag})</div>',
+            unsafe_allow_html=True
         )
     else:
-        env_or_key = os.getenv("OPENROUTER_API_KEY", "")
-        api_key_input = st.text_input(
-            "OpenRouter API Key",
-            value="",
-            placeholder="🔒 Loaded securely from .env" if env_or_key else "sk-or-v1-...",
-            type="password",
-            help="Your API key is kept secure and hidden. Enter a key here only if you wish to override the environment variable."
+        st.markdown(
+            '<div class="status-badge badge-warning">▲ OpenRouter Key Required</div>',
+            unsafe_allow_html=True
         )
-        effective_api_key = api_key_input.strip() if api_key_input.strip() else env_or_key.strip()
+        st.caption("👉 [Get an API key from OpenRouter](https://openrouter.ai/keys)")
 
-        if effective_api_key:
-            source_tag = "Override" if api_key_input.strip() else "Secure .env"
-            st.markdown(
-                f'<div class="status-badge badge-ready">● OpenRouter Key Active ({source_tag})</div>',
-                unsafe_allow_html=True
-            )
-        else:
-            st.markdown(
-                '<div class="status-badge badge-warning">▲ OpenRouter Key Required</div>',
-                unsafe_allow_html=True
-            )
-            st.caption("👉 [Get a key from OpenRouter](https://openrouter.ai/keys)")
+    st.markdown("---")
+    st.markdown("### 🧠 Model Parameters")
 
-        selected_model = st.selectbox(
-            "OpenRouter Model",
-            options=[
-                "stealth/space-bunny-alpha",
-                "liquid/lfm-2.5-2.6b:free",
-                "qwen/qwen3.8-27b:free",
-                "meta-llama/llama-3.3-70b-instruct",
-                "deepseek/deepseek-r1",
-                "openai/gpt-4o-mini"
-            ],
-            index=0,
-            help="Select an OpenRouter model."
-        )
+    model_preset = st.selectbox(
+        "Language Model",
+        options=[
+            "stealth/space-bunny-alpha",
+            "liquid/lfm-2.5-2.6b:free",
+            "qwen/qwen3.8-27b:free",
+            "meta-llama/llama-3.3-70b-instruct",
+            "deepseek/deepseek-r1",
+            "openai/gpt-4o-mini",
+            "Custom Model ID..."
+        ],
+        index=0,
+        help="Select any OpenRouter model."
+    )
 
-    # Embedding Key (Google Gemini embeddings)
-    gemini_emb_key = os.getenv("GOOGLE_API_KEY", "")
-    if not gemini_emb_key and selected_provider == "Google Gemini (Direct)":
-        gemini_emb_key = effective_api_key
+    if model_preset == "Custom Model ID...":
+        selected_model = st.text_input("Enter Model Slug", value="stealth/space-bunny-alpha")
+    else:
+        selected_model = model_preset
 
     selected_embedding = st.selectbox(
         "Embedding Model",
-        options=["models/gemini-embedding-001", "models/gemini-embedding-2"],
+        options=["text-embedding-3-small", "text-embedding-3-large"],
         index=0,
-        help="Google's standard gemini-embedding-001 model generates 3072-dim embeddings."
+        help="High-efficiency embedding model powered by OpenRouter (1536 dimensions)."
     )
 
     temperature = st.slider("Temperature", min_value=0.0, max_value=1.0, value=0.2, step=0.1)
@@ -389,8 +354,8 @@ with st.sidebar:
     process_btn = st.button("🚀 Process & Index Documents", use_container_width=True, type="primary")
 
     if process_btn:
-        if not gemini_emb_key:
-            st.error("Please enter a Google Gemini API Key in .env or the sidebar for vector embeddings!")
+        if not effective_api_key:
+            st.error("Please configure your OpenRouter API Key in .env or the sidebar first!")
         elif not uploaded_files:
             st.warning("Please upload at least one PDF file.")
         else:
@@ -403,7 +368,7 @@ with st.sidebar:
                 else:
                     chunks = chunk_documents(docs, chunk_size, chunk_overlap)
                     try:
-                        vector_store = create_vector_store(chunks, gemini_emb_key, selected_embedding)
+                        vector_store = create_vector_store(chunks, effective_api_key, selected_embedding)
                         st.session_state.vector_store = vector_store
                         st.session_state.doc_metadata = meta
                         st.session_state.total_chunks = len(chunks)
@@ -425,7 +390,7 @@ with st.sidebar:
 # ==========================================
 st.markdown('<div class="hero-title">ChatPDF Intelligence</div>', unsafe_allow_html=True)
 st.markdown(
-    '<div class="hero-subtitle">Chat with multiple PDF documents using Google Gemini & FAISS Vector Search</div>',
+    '<div class="hero-subtitle">Chat with multiple PDF documents using OpenRouter LLMs & FAISS Vector Search</div>',
     unsafe_allow_html=True
 )
 
@@ -458,10 +423,11 @@ with col3:
     """, unsafe_allow_html=True)
 
 with col4:
+    short_model = selected_model.split("/")[-1] if "/" in selected_model else selected_model
     st.markdown(f"""
     <div class="glass-card">
-        <div class="metric-value" style="font-size: 1.15rem; line-height: 2rem;">{selected_model}</div>
-        <div class="metric-label">Active Engine</div>
+        <div class="metric-value" style="font-size: 1.15rem; line-height: 2rem;">{short_model}</div>
+        <div class="metric-label">Active Model</div>
     </div>
     """, unsafe_allow_html=True)
 
@@ -500,14 +466,13 @@ with tab_chat:
 
             if quick_query:
                 st.session_state.messages.append({"role": "user", "content": quick_query})
-                with st.spinner(f"Analyzing document with {selected_provider}..."):
+                with st.spinner(f"Analyzing document with {selected_model}..."):
                     try:
                         ans, sources = answer_user_question(
                             quick_query,
                             st.session_state.vector_store,
                             effective_api_key,
                             selected_model,
-                            provider=selected_provider,
                             temperature=temperature,
                             top_k=retrieval_k
                         )
@@ -532,14 +497,19 @@ with tab_chat:
 
     if user_query:
         if not effective_api_key:
-            st.error(f"Please configure your {selected_provider} API Key in the sidebar.")
+            st.error("Please configure your OpenRouter API Key in the sidebar.")
         elif st.session_state.vector_store is None:
             # Fallback check if faiss_index exists on disk
             if os.path.exists("faiss_index"):
                 try:
-                    embeddings = GoogleGenerativeAIEmbeddings(
+                    embeddings = OpenAIEmbeddings(
                         model=selected_embedding,
-                        google_api_key=gemini_emb_key
+                        openai_api_key=effective_api_key,
+                        openai_api_base="https://openrouter.ai/api/v1",
+                        headers={
+                            "HTTP-Referer": "https://github.com/ruturajg4/ChatPDF",
+                            "X-Title": "ChatPDF"
+                        }
                     )
                     st.session_state.vector_store = FAISS.load_local(
                         "faiss_index",
@@ -564,7 +534,6 @@ with tab_chat:
                             st.session_state.vector_store,
                             effective_api_key,
                             selected_model,
-                            provider=selected_provider,
                             temperature=temperature,
                             top_k=retrieval_k
                         )
@@ -582,7 +551,7 @@ with tab_chat:
                             "sources": sources
                         })
                     except Exception as err:
-                        error_msg = f"⚠️ {selected_provider} Error: {str(err)}"
+                        error_msg = f"⚠️ OpenRouter Error: {str(err)}"
                         st.error(error_msg)
                         st.session_state.messages.append({
                             "role": "assistant",
@@ -618,13 +587,13 @@ with tab_info:
                              └────────────────────────┘       └───────────┬────────────┘
                                                                           │
     ┌────────────────┐       ┌────────────────────────┐                   ▼
-    │ Gemini Response│◄──────┤ Context & Prompt Chain ├───────┌────────────────────────┐
-    │ (with Citations)│      │ (ChatGoogleGenAI)      │       │ Google Embeddings      │
-    └────────────────┘       └───────────▲────────────┘       │ (text-embedding-004)   │
+    │OpenRouter LLM  │◄──────┤ Context & Prompt Chain ├───────┌────────────────────────┐
+    │(with Citations)│      │ (ChatOpenAI)           │       │ OpenRouter Embeddings  │
+    └────────────────┘       └───────────▲────────────┘       │(text-embedding-3-small)│
                                          │                    └───────────┬────────────┘
                                          │                                │
                              ┌───────────┴────────────┐                   ▼
-                             │ Similarity Search (Top-k)│◄─────┌────────────────────────┐
+                             │ Similarity Search Top-K│◄─────┌────────────────────────┐
                              │ (Cosine / L2 Distance) │       │   FAISS Vector Index   │
                              └────────────────────────┘       └────────────────────────┘
     ```
@@ -633,7 +602,7 @@ with tab_info:
     #### 🚀 Key Features:
     - **Multi-Document Support**: Upload and analyze multiple PDFs simultaneously.
     - **Exact Page Citations**: Each retrieved passage includes the document title and page number.
-    - **Modern LCEL Architecture**: Built using LangChain Expression Language for low latency and zero deprecation warnings.
-    - **Frontier Gemini Models**: Supports `gemini-1.5-flash`, `gemini-2.0-flash`, and `gemini-1.5-pro`.
+    - **Modern LCEL Architecture**: Built using LangChain Expression Language for low latency and high reliability.
+    - **OpenRouter Multi-Model Power**: Seamlessly query across DeepSeek, LLaMA, OpenAI, and free community models.
     - **Interactive Multi-Turn Chat**: Natural conversational flow with chat memory and quick prompt shortcuts.
     """)
