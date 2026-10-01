@@ -206,7 +206,7 @@ def chunk_documents(documents: List[Document], chunk_size: int = 1000, chunk_ove
 
 
 # Helper: Build Vector Store
-def create_vector_store(chunks: List[Document], api_key: str, embedding_model: str = "models/text-embedding-004"):
+def create_vector_store(chunks: List[Document], api_key: str, embedding_model: str = "models/gemini-embedding-001"):
     embeddings = GoogleGenerativeAIEmbeddings(
         model=embedding_model,
         google_api_key=api_key
@@ -298,16 +298,16 @@ with st.sidebar:
     
     selected_model = st.selectbox(
         "Gemini Model",
-        options=["gemini-1.5-flash", "gemini-2.0-flash", "gemini-1.5-pro"],
+        options=["gemini-3.8-flash", "gemini-3.5-flash", "gemini-3.1-pro-preview"],
         index=0,
-        help="gemini-1.5-flash is ultra-fast & highly accurate. gemini-1.5-pro provides deep reasoning."
+        help="gemini-3.8-flash is Google's latest ultra-fast frontier model."
     )
 
     selected_embedding = st.selectbox(
         "Embedding Model",
-        options=["models/text-embedding-004", "models/embedding-001"],
+        options=["models/gemini-embedding-001", "models/gemini-embedding-2"],
         index=0,
-        help="Google's standard text-embedding-004 model generates 768-dim embeddings."
+        help="Google's standard gemini-embedding-001 model generates 3072-dim embeddings."
     )
 
     temperature = st.slider("Temperature", min_value=0.0, max_value=1.0, value=0.2, step=0.1)
