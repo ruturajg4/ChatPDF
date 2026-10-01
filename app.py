@@ -15,6 +15,7 @@ except ImportError:
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import FAISS
 from langchain_google_genai import GoogleGenerativeAIEmbeddings, ChatGoogleGenerativeAI
+from langchain_community.chat_models import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.documents import Document
@@ -220,7 +221,7 @@ def create_vector_store(chunks: List[Document], api_key: str, embedding_model: s
 
 
 # Helper: Conversational Q&A Chain (LCEL)
-def answer_user_question(user_question: str, vector_store, api_key: str, model_name: str, temperature: float = 0.2, top_k: int = 4):
+def answer_user_question(user_question: str, vector_store, api_key: str, model_name: str, provider: str = "Google Gemini (Direct)", temperature: float = 0.2, top_k: int = 4):
     retriever = vector_store.as_retriever(search_kwargs={"k": top_k})
     retrieved_docs = retriever.invoke(user_question)
 
@@ -233,7 +234,7 @@ def answer_user_question(user_question: str, vector_store, api_key: str, model_n
     )
 
     system_prompt = (
-        "You are an expert document assistant powered by Google Gemini.\n"
+        f"You are an expert document assistant powered by {provider}.\n"
         "Your task is to answer questions thoroughly, accurately, and strictly based on the provided context.\n"
         "Guidelines:\n"
         "1. Provide clear, well-structured, detailed answers with markdown formatting (bullet points, bold highlights, tables if applicable).\n"
@@ -249,11 +250,23 @@ def answer_user_question(user_question: str, vector_store, api_key: str, model_n
         ("human", "{question}")
     ])
 
-    llm = ChatGoogleGenerativeAI(
-        model=model_name,
-        google_api_key=api_key,
-        temperature=temperature
-    )
+    if "OpenRouter" in provider:
+        llm = ChatOpenAI(
+            model=model_name,
+            openai_api_key=api_key,
+            openai_api_base="https://openrouter.ai/api/v1",
+            default_headers={
+                "HTTP-Referer": "https://github.com/ruturajg4/ChatPDF",
+                "X-Title": "ChatPDF"
+            },
+            temperature=temperature
+        )
+    else:
+        llm = ChatGoogleGenerativeAI(
+            model=model_name,
+            google_api_key=api_key,
+            temperature=temperature
+        )
 
     chain = prompt | llm | StrOutputParser()
     answer = chain.invoke({
@@ -268,40 +281,83 @@ def answer_user_question(user_question: str, vector_store, api_key: str, model_n
 # Sidebar: Setup, Model & File Management
 # ==========================================
 with st.sidebar:
-    st.markdown("### ⚙️ Gemini Configuration")
+    st.markdown("### ⚙️ Engine & API Setup")
 
-    # API Key Management
-    env_api_key = os.getenv("GOOGLE_API_KEY", "")
-    api_key_input = st.text_input(
-        "Google Gemini API Key",
-        value=env_api_key,
-        type="password",
-        help="Get a free API key at https://aistudio.google.com/app/apikey"
+    selected_provider = st.radio(
+        "Select AI Provider",
+        options=["Google Gemini (Direct)", "OpenRouter (Multi-Model)"],
+        horizontal=True,
+        help="Google Gemini connects directly to Google AI Studio. OpenRouter allows accessing multi-LLM community models."
     )
 
-    effective_api_key = api_key_input.strip() if api_key_input else env_api_key.strip()
+    if selected_provider == "Google Gemini (Direct)":
+        env_api_key = os.getenv("GOOGLE_API_KEY", "")
+        api_key_input = st.text_input(
+            "Google Gemini API Key",
+            value=env_api_key,
+            type="password",
+            help="Get a free API key at https://aistudio.google.com/app/apikey"
+        )
+        effective_api_key = api_key_input.strip() if api_key_input else env_api_key.strip()
 
-    if effective_api_key:
-        st.markdown(
-            '<div class="status-badge badge-ready">● API Key Configured</div>',
-            unsafe_allow_html=True
+        if effective_api_key:
+            st.markdown(
+                '<div class="status-badge badge-ready">● Gemini Key Configured</div>',
+                unsafe_allow_html=True
+            )
+        else:
+            st.markdown(
+                '<div class="status-badge badge-warning">▲ Gemini Key Required</div>',
+                unsafe_allow_html=True
+            )
+            st.caption("👉 [Get a free key from Google AI Studio](https://aistudio.google.com/app/apikey)")
+
+        selected_model = st.selectbox(
+            "Gemini Model",
+            options=["gemini-3.8-flash", "gemini-3.5-flash", "gemini-3.1-pro-preview"],
+            index=0,
+            help="gemini-3.8-flash is Google's latest ultra-fast frontier model."
         )
     else:
-        st.markdown(
-            '<div class="status-badge badge-warning">▲ API Key Required</div>',
-            unsafe_allow_html=True
+        env_or_key = os.getenv("OPENROUTER_API_KEY", "")
+        api_key_input = st.text_input(
+            "OpenRouter API Key",
+            value=env_or_key,
+            type="password",
+            help="Get your key at https://openrouter.ai/keys"
         )
-        st.caption("👉 [Get a free key from Google AI Studio](https://aistudio.google.com/app/apikey)")
+        effective_api_key = api_key_input.strip() if api_key_input else env_or_key.strip()
 
-    st.markdown("---")
-    st.markdown("### 🧠 Model Parameters")
-    
-    selected_model = st.selectbox(
-        "Gemini Model",
-        options=["gemini-3.8-flash", "gemini-3.5-flash", "gemini-3.1-pro-preview"],
-        index=0,
-        help="gemini-3.8-flash is Google's latest ultra-fast frontier model."
-    )
+        if effective_api_key:
+            st.markdown(
+                '<div class="status-badge badge-ready">● OpenRouter Key Configured</div>',
+                unsafe_allow_html=True
+            )
+        else:
+            st.markdown(
+                '<div class="status-badge badge-warning">▲ OpenRouter Key Required</div>',
+                unsafe_allow_html=True
+            )
+            st.caption("👉 [Get a key from OpenRouter](https://openrouter.ai/keys)")
+
+        selected_model = st.selectbox(
+            "OpenRouter Model",
+            options=[
+                "stealth/space-bunny-alpha",
+                "liquid/lfm-2.5-2.6b:free",
+                "qwen/qwen3.8-27b:free",
+                "meta-llama/llama-3.3-70b-instruct",
+                "deepseek/deepseek-r1",
+                "openai/gpt-4o-mini"
+            ],
+            index=0,
+            help="Select an OpenRouter model."
+        )
+
+    # Embedding Key (Google Gemini embeddings)
+    gemini_emb_key = os.getenv("GOOGLE_API_KEY", "")
+    if not gemini_emb_key and selected_provider == "Google Gemini (Direct)":
+        gemini_emb_key = effective_api_key
 
     selected_embedding = st.selectbox(
         "Embedding Model",
@@ -329,8 +385,8 @@ with st.sidebar:
     process_btn = st.button("🚀 Process & Index Documents", use_container_width=True, type="primary")
 
     if process_btn:
-        if not effective_api_key:
-            st.error("Please enter a valid Google Gemini API Key first!")
+        if not gemini_emb_key:
+            st.error("Please enter a Google Gemini API Key in .env or the sidebar for vector embeddings!")
         elif not uploaded_files:
             st.warning("Please upload at least one PDF file.")
         else:
@@ -343,7 +399,7 @@ with st.sidebar:
                 else:
                     chunks = chunk_documents(docs, chunk_size, chunk_overlap)
                     try:
-                        vector_store = create_vector_store(chunks, effective_api_key, selected_embedding)
+                        vector_store = create_vector_store(chunks, gemini_emb_key, selected_embedding)
                         st.session_state.vector_store = vector_store
                         st.session_state.doc_metadata = meta
                         st.session_state.total_chunks = len(chunks)
@@ -440,15 +496,16 @@ with tab_chat:
 
             if quick_query:
                 st.session_state.messages.append({"role": "user", "content": quick_query})
-                with st.spinner("Analyzing document with Gemini..."):
+                with st.spinner(f"Analyzing document with {selected_provider}..."):
                     try:
                         ans, sources = answer_user_question(
                             quick_query,
                             st.session_state.vector_store,
                             effective_api_key,
                             selected_model,
-                            temperature,
-                            retrieval_k
+                            provider=selected_provider,
+                            temperature=temperature,
+                            top_k=retrieval_k
                         )
                         st.session_state.messages.append({"role": "assistant", "content": ans, "sources": sources})
                     except Exception as err:
@@ -471,14 +528,14 @@ with tab_chat:
 
     if user_query:
         if not effective_api_key:
-            st.error("Please configure your Google Gemini API Key in the sidebar.")
+            st.error(f"Please configure your {selected_provider} API Key in the sidebar.")
         elif st.session_state.vector_store is None:
             # Fallback check if faiss_index exists on disk
             if os.path.exists("faiss_index"):
                 try:
                     embeddings = GoogleGenerativeAIEmbeddings(
                         model=selected_embedding,
-                        google_api_key=effective_api_key
+                        google_api_key=gemini_emb_key
                     )
                     st.session_state.vector_store = FAISS.load_local(
                         "faiss_index",
@@ -503,8 +560,9 @@ with tab_chat:
                             st.session_state.vector_store,
                             effective_api_key,
                             selected_model,
-                            temperature,
-                            retrieval_k
+                            provider=selected_provider,
+                            temperature=temperature,
+                            top_k=retrieval_k
                         )
                         st.markdown(reply)
                         if sources:
@@ -520,7 +578,7 @@ with tab_chat:
                             "sources": sources
                         })
                     except Exception as err:
-                        error_msg = f"⚠️ Gemini API Error: {str(err)}"
+                        error_msg = f"⚠️ {selected_provider} Error: {str(err)}"
                         st.error(error_msg)
                         st.session_state.messages.append({
                             "role": "assistant",

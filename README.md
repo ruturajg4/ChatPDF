@@ -14,11 +14,11 @@ An intelligent, multi-document conversational AI application powered by **Google
 
 - **Multi-Document PDF Ingestion**: Upload multiple PDFs simultaneously; extracts text page-by-page while preserving exact document and page metadata.
 - **Accurate Document Citations**: Every answer provides an expandable source breakdown citing the exact document name, page number, and matched chunk text.
-- **Frontier Google Gemini Models**: Choose between `gemini-1.5-flash` (ultra-fast, 1M context), `gemini-2.0-flash` (cutting-edge frontier speed), or `gemini-1.5-pro` (complex reasoning).
-- **High-Performance Vector Search**: Uses Google's `models/text-embedding-004` (768-dim embeddings) paired with in-memory **FAISS** similarity indexing.
+- **Frontier Google Gemini & OpenRouter Support**: Seamlessly switch between native **Google Gemini** (`gemini-3.8-flash`, `gemini-3.5-flash`) and **OpenRouter** multi-model LLMs (`meta-llama`, `deepseek`, `openai`, `qwen`).
+- **High-Performance Vector Search**: Uses Google's `models/gemini-embedding-001` (3072-dim embeddings) paired with in-memory **FAISS** similarity indexing.
 - **Modern LCEL Architecture**: Modern LangChain Expression Language (`prompt | llm | StrOutputParser()`) — clean, future-proof, with zero deprecation warnings.
 - **Interactive Chat Interface**: Multi-turn conversational flow with custom glassmorphism styling, metrics dashboard, quick prompt shortcuts, and chat clearing.
-- **Live Key & Model Management**: Configure your Gemini API key via `.env` or live in the Streamlit sidebar with instantaneous connection feedback.
+- **Dual API Key Management**: Configure Gemini and OpenRouter keys via `.env` or interactively in the Streamlit sidebar.
 
 ---
 
