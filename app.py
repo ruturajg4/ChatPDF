@@ -294,15 +294,17 @@ with st.sidebar:
         env_api_key = os.getenv("GOOGLE_API_KEY", "")
         api_key_input = st.text_input(
             "Google Gemini API Key",
-            value=env_api_key,
+            value="",
+            placeholder="🔒 Loaded securely from .env" if env_api_key else "Paste API Key here...",
             type="password",
-            help="Get a free API key at https://aistudio.google.com/app/apikey"
+            help="Your API key is kept secure and hidden. Enter a key here only if you wish to override the environment variable."
         )
-        effective_api_key = api_key_input.strip() if api_key_input else env_api_key.strip()
+        effective_api_key = api_key_input.strip() if api_key_input.strip() else env_api_key.strip()
 
         if effective_api_key:
+            source_tag = "Override" if api_key_input.strip() else "Secure .env"
             st.markdown(
-                '<div class="status-badge badge-ready">● Gemini Key Configured</div>',
+                f'<div class="status-badge badge-ready">● Gemini Key Active ({source_tag})</div>',
                 unsafe_allow_html=True
             )
         else:
@@ -322,15 +324,17 @@ with st.sidebar:
         env_or_key = os.getenv("OPENROUTER_API_KEY", "")
         api_key_input = st.text_input(
             "OpenRouter API Key",
-            value=env_or_key,
+            value="",
+            placeholder="🔒 Loaded securely from .env" if env_or_key else "sk-or-v1-...",
             type="password",
-            help="Get your key at https://openrouter.ai/keys"
+            help="Your API key is kept secure and hidden. Enter a key here only if you wish to override the environment variable."
         )
-        effective_api_key = api_key_input.strip() if api_key_input else env_or_key.strip()
+        effective_api_key = api_key_input.strip() if api_key_input.strip() else env_or_key.strip()
 
         if effective_api_key:
+            source_tag = "Override" if api_key_input.strip() else "Secure .env"
             st.markdown(
-                '<div class="status-badge badge-ready">● OpenRouter Key Configured</div>',
+                f'<div class="status-badge badge-ready">● OpenRouter Key Active ({source_tag})</div>',
                 unsafe_allow_html=True
             )
         else:
